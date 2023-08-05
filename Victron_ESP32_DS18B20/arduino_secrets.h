@@ -1,0 +1,4 @@
+#define SECRET_SSID "UBNT"
+#define SECRET_PASS "bdeaf13680"
+#define MQTT_SERVER "10.0.1.90"
+#define MQTT_SERVER_PORT 1883
