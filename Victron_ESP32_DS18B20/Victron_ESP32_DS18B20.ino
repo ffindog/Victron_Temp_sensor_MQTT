@@ -26,6 +26,7 @@
 
 const char VERSION[] = "v1.0"; 
 const boolean headless = true; //useful for debugging 
+float Level = 50;
 
 #define WIFI_SSID "UBNT_IOT"
 #define WIFI_PASSWORD "bdeaf13680"
@@ -39,7 +40,11 @@ int        port     = MQTT_SERVER_PORT;
 //const int ledPin =  13;      // the number of the LED pin
 
 const char clientId[] = "fe001"; // Do not include characters .-: only use underscores _
+//const char serviceId[] = "t1"; // any string to uniquely identify the service on this device
+
 const char serviceId[] = "t1"; // any string to uniquely identify the service on this device
+const char tankServiceId[] = "tk1"; // another string to uniquely identify the tank service on this device
+
 
 const char portalIDTopic[]  = "N/+/system/0/Serial"; // Topic to retrieve the VRM Portal ID for the Venus device
 const char keepaliveTopicTemplate[] = "R/<portal ID>/keepalive"; // Topic to send keepalive request to
@@ -50,6 +55,10 @@ const char deviceInstanceTopicTemplate[] = "device/<client ID>/DeviceInstance"; 
 const char vebusModeTopicTemplate[] = "/<portal ID>/vebus/257/Mode"; // dbus-mqtt topic for handling the multiplus mode (inverter/charger onn/off), is prefixed with N, R or W at runtime
 const char temperatureTopicTemplate[] = "/<portal ID>/temperature/<instance ID>/"; // dbus-mqtt topic for handling Temperator sensors, is prefixed with N or W at runtime
 const int  tempReadingInterval = 50000; // How often to publish a temperature reading
+
+const char tankTopicTemplate[] = "/<portal ID>/tank/<instance ID>/"; // dbus-mqtt topic for handling Temperator sensors, is prefixed with N or W at runtime
+//const char tankLevelTopicTemplate[] = "/<portal ID>/tank/<instance ID>/Level"; // dbus-mqtt topic for handling the tank level
+
 
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
@@ -146,10 +155,6 @@ WiFi.onEvent(WiFiEvent);
  * * * * * * */
 void loop() {
 
-  //checkButton();
-
-
-
   if (WiFi.status() != WL_CONNECTED) {
     Serial.print("WiFi is not connected is lost, will attempt to reconnect in 30 seconds. WiFi status:"); Serial.println(WiFi.status());
     delay(30000);
@@ -234,7 +239,7 @@ void onMqttMessage(int messageSize) {
 
   // Handle DeviceInstance messages from dbus-mqtt-devices
   if (topic == deviceInstanceTopic() && messageSize > 0) {
-    DynamicJsonDocument doc(messageSize+10); // {"value": 100} see https://arduinojson.org/v6/assistant/
+    DynamicJsonDocument doc(messageSize+20); // {"value": 100} see https://arduinojson.org/v6/assistant/
     DeserializationError err = deserializeJson(doc, mqttClient);
     if (err) {
       Serial.print("Error reading device instance JSON; ");
@@ -267,89 +272,9 @@ void printWifiData() {
   IPAddress ip = WiFi.localIP();
   Serial.print("IP Address: ");
   Serial.println(ip);
-
-  // print your MAC address:
- // byte mac[6];
-  //WiFi.macAddress(mac);
-  //Serial.print("MAC address: ");
-  //printMacAddress(mac);
-  //Serial.println();
-}
-
-/* * * * * * *
- *  
- * * * * * * 
-void printCurrentNet() {
-  // print the SSID of the network you're attached to:
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
-
-  // print the MAC address of the router you're attached to:
-  byte bssid[6];
-  WiFi.BSSID(bssid);
-  Serial.print("BSSID: ");
-  printMacAddress(bssid);
-
-  // print the received signal strength:
-  long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.println(rssi);
-
-  // print the encryption type:
-  byte encryption = WiFi.encryptionType();
-  Serial.print("Encryption Type:");
-  Serial.println(encryption, HEX);
-  Serial.println();
 }
 
 
-/* * * * * * *
- *  wifi stuff
- * * * * * * *
-void printMacAddress(byte mac[]) {
-  for (int i = 5; i >= 0; i--) {
-    if (mac[i] < 16) {
-      Serial.print("0");
-    }
-    Serial.print(mac[i], HEX);
-    if (i > 0) {
-      Serial.print(":");
-    }
-  }
-  Serial.println();
-}
-
-
-void initialiseWifi() {
-   // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
-    // don't continue
-    while (true);
-  }
-
-  String fv = WiFi.firmwareVersion();
-  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
-  }
-
-  do {
-    Serial.print("Attempting to connect to WPA SSID: ");
-    Serial.println(ssid);
-    status = WiFi.begin(ssid, pass); // Connect to WPA/WPA2 network:
-    if (status != WL_CONNECTED) {
-      delay(2000); // wait 2 seconds for connection:
-    };    
-  } while (status != WL_CONNECTED);
- 
-  Serial.println("You're connected to the network");
-  printCurrentNet();
-  printWifiData();
-
-
-}
-
-*/
 
 void initialiseMQTT() {
   
@@ -428,8 +353,11 @@ DynamicJsonDocument deviceStatusPayload(int connected) {
   doc["clientId"] = clientId;
   doc["connected"] = connected;
   doc["version"] = VERSION;
+  //JsonObject services = doc.createNestedObject("services");
+ //services[serviceId] = "temperature, tank"; // Lowercase service type
   JsonObject services = doc.createNestedObject("services");
-  services[serviceId] = "temperature"; // Lowercase service type
+services[serviceId] = "temperature";
+services[tankServiceId] = "tank";
   return doc;
 }
 
@@ -452,6 +380,13 @@ String temperatureTopic(String mode, String suffix) {
   return topic;
 }
 
+String tankTopic(String mode, String suffix) {
+  String topic =  mode + String(tankTopicTemplate) + suffix;
+  topic.replace("<portal ID>", portalID);
+  topic.replace("<instance ID>", String(instanceID));
+  return topic;
+}
+
 void publishTemperature(float temp) {
   Serial.println(); Serial.print("MQTT Connection status: "); Serial.print(mqttClient.connected());
   Serial.print(", WiFi status: "); Serial.println(WiFi.status());
@@ -465,16 +400,18 @@ void publishTemperature(float temp) {
   Serial.print(temp);
   Serial.print(" to temperatureTopic: "); Serial.println(temperatureTopic("W", "Temperature")); 
 
-  /* 
-  mqttClient.beginMessage(temperatureTopic("W", "Pressure"));
+   
+  mqttClient.beginMessage(tankTopic("W", "Level"));
   mqttClient.print("{ \"value\":");
-  mqttClient.print(pressue);
+  mqttClient.print(Level);
   mqttClient.print("}");
   mqttClient.endMessage();    
-  Serial.print("publish pressue ");
-  Serial.print(pressure);
-  Serial.print(" to temperatureTopic: "); Serial.println(temperatureTopic("W", "Pressue")); 
-  */
+  Serial.print("publish Tank ");
+  Serial.print(Level);
+  //Serial.print(" to tankTopic: "); Serial.println(tankTopic("W", "tank")); 
+  Serial.print(" to tankTopic: "); Serial.println(tankTopic("W", "Level")); 
+
+  
 /*
   mqttClient.beginMessage(temperatureTopic("W", "Humidity"));
   mqttClient.print("{ \"value\":");
