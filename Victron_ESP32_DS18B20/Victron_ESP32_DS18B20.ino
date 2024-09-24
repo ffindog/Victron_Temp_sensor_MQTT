@@ -57,7 +57,6 @@ const char temperatureTopicTemplate[] = "/<portal ID>/temperature/<instance ID>/
 const int  tempReadingInterval = 50000; // How often to publish a temperature reading
 
 const char tankTopicTemplate[] = "/<portal ID>/tank/<instance ID>/"; // dbus-mqtt topic for handling Temperator sensors, is prefixed with N or W at runtime
-//const char tankLevelTopicTemplate[] = "/<portal ID>/tank/<instance ID>/Level"; // dbus-mqtt topic for handling the tank level
 
 
 WiFiClient wifiClient;
@@ -410,6 +409,8 @@ void publishTemperature(float temp) {
   Serial.print(Level);
   //Serial.print(" to tankTopic: "); Serial.println(tankTopic("W", "tank")); 
   Serial.print(" to tankTopic: "); Serial.println(tankTopic("W", "Level")); 
+
+  
 
   
 /*
